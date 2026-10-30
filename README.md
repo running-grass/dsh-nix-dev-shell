@@ -120,9 +120,9 @@ error: … unable to open database file (in '~/.cache/nix/fetcher-cache-v4.sqlit
 
 ## 模型如何知道它在生效
 
-模型默认看不到「谁改了环境」——它可能把 `IN_NIX_SHELL=impure` 和 /nix/store 的工具链归功于 direnv，或干脆以为还是原生环境。这正是本插件向**运行时上下文**（`ctx.systemPrompt.context`，与 working-directory、sandbox-policy 报告运行事实的是同一个注册表）贡献一句话的原因：
+模型默认看不到「谁改了环境」——它可能把 `IN_NIX_SHELL=impure` 和 /nix/store 的工具链归功于别的工具，或干脆以为还是原生环境。这正是本插件向**运行时上下文**（`ctx.systemPrompt.context`，与 working-directory、sandbox-policy 报告运行事实的是同一个注册表）贡献一句**正面陈述**的原因：
 
-> Bash commands run inside the Nix dev shell of `<flakeDir>` (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, tools come from /nix/store, and `nix` works directly.
+> Bash commands run inside the Nix dev shell of `<flakeDir>` (the `nix develop` environment): IN_NIX_SHELL=impure, tools come from /nix/store, and `nix` works directly.
 
 行为细节：
 

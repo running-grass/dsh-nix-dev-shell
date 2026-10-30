@@ -227,14 +227,15 @@ function flakeStamp(cfg, flakeDir) {
 const PROMPT_CONTEXT_ORDER = 112
 
 /**
- * The single line handed to the model while a dev shell is active. It names the
- * plugin deliberately: without it models attribute `IN_NIX_SHELL` and the Nix
- * toolchain to direnv, or silently treat the environment as the native one.
+ * The single line handed to the model while a dev shell is active. It states
+ * what the environment IS — the flake's `nix develop` shell — because without
+ * it models treat `IN_NIX_SHELL` and the /nix/store toolchain as the native
+ * environment (or, worse, as someone else's doing).
  * @param flakeDir - the flake root the dev shell was captured from.
  * @returns one English sentence for the runtime prompt context.
  */
 function devShellContextLine(flakeDir) {
-  return `Bash commands run inside the Nix dev shell of ${flakeDir} (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, tools come from /nix/store, and \`nix\` works directly.`
+  return `Bash commands run inside the Nix dev shell of ${flakeDir} (the \`nix develop\` environment): IN_NIX_SHELL=impure, tools come from /nix/store, and \`nix\` works directly.`
 }
 
 /** The helper shell program that prints the dev-shell environment as NUL-separated pairs. */
