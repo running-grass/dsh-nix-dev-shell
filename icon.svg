@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Nix dev shell">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f172a"/>
+  <path d="M12 20l9 9-9 9" fill="none" stroke="#38bdf8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M25 38h9" fill="none" stroke="#38bdf8" stroke-width="5" stroke-linecap="round"/>
+  <g stroke="#a5b4fc" stroke-width="2.6" stroke-linecap="round">
+    <path d="M45 13v16"/>
+    <path d="M38.07 17l13.86 8"/>
+    <path d="M51.93 17l-13.86 8"/>
+    <path d="M42.5 15.5l2.5 2.5M42.5 26.5l2.5-2.5"/>
+    <path d="M40.6 18.8l3.4.9M49.4 23.2l-3.4-.9"/>
+    <path d="M40.6 23.2l3.4-.9M49.4 18.8l-3.4.9"/>
+  </g>
+  <path d="M30 48h20" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,24 @@
+# Bundle layer: insert the decorator row after the base bundle's shell rows.
+# It does not replace the mounted executor; it decorates `ctx.shell.execute`,
+# so `bash-sandbox` (and its sandbox policy) stays exactly as configured.
+- insert:
+    - id: nix-dev-shell
+      name: dsh-nix-dev-shell
+      config:
+        enabled: true
+        # 'env' injects the captured dev-shell environment (fast, quiet);
+        # 'wrap' runs every command as `nix develop <flake> --command bash -c …`.
+        mode: env
+        flakeFile: flake.nix
+        maxAncestors: 40
+        captureTimeoutMs: 30000
+        retryMs: 60000
+        ttlMs: 600000
+        # 沙箱内 ~/.cache/nix 只读：把 NIX_CACHE_HOME 指到可写目录，
+        # 让 flake 工作区里的显式 `nix` 命令也开箱可用。
+        injectCacheHome: true
+        # 空字符串 = 每次调用用 /tmp 临时目录（冷缓存，nix develop 约 540ms）；
+        # 指向工作区内路径可跨调用复用（热缓存，约 120ms，缓存约 2.3MB）。
+        # 本仓库的 .dsh-plugins/ 已在 .git/info/exclude 中忽略。
+        cacheDir: .dsh-plugins/.cache/nix
+        nixCommand: nix

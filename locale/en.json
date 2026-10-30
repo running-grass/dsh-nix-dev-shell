@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Nix dev shell",
+    "description": "Runs harness bash commands inside the workspace's Nix dev shell when a flake.nix is present."
+  }
+}

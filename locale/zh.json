@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Nix 开发环境 shell",
+    "description": "工作区存在 flake.nix 时，让 Harness 的 bash 命令在 nix develop 开发环境中执行。"
+  }
+}
