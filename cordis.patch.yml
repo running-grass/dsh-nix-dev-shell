@@ -21,4 +21,7 @@
         # 指向工作区内路径可跨调用复用（热缓存，约 120ms，缓存约 2.3MB）。
         # 本仓库的 .dsh-plugins/ 已在 .git/info/exclude 中忽略。
         cacheDir: .dsh-plugins/.cache/nix
+        # 给模型一条运行时上下文（systemPrompt.context），说明 bash 运行在 flake
+        # 的 devShell 里、来自本插件而非 direnv；首次捕获成功后生效。
+        promptContext: true
         nixCommand: nix

@@ -69,6 +69,7 @@ echo $NIX_CACHE_HOME    # 沙箱可写的 nix 缓存目录
 | `cacheDir` | `'.dsh-plugins/.cache/nix'`（随行配置；代码内默认为 `''` = 临时目录） | 沙箱内 nix 的缓存目录（`NIX_CACHE_HOME`，helper 里同时设 `XDG_CACHE_HOME`）；相对路径按 **flake 根目录**解析（不是 Harness 进程的 cwd）。 |
 | `injectCacheHome` | `true` | 在 flake 工作区内、且命令受沙箱约束时，把 `NIX_CACHE_HOME` 注入命令环境，使显式 `nix` 命令开箱可用。 |
 | `nixCommand` | `'nix'` | nix 可执行文件的名称或绝对路径。 |
+| `promptContext` | `true` | 向模型注入一条运行时上下文，说明 devShell 已生效、来源于本插件（而非 direnv）。 |
 
 ### 缓存与失效
 
@@ -116,6 +117,19 @@ error: … unable to open database file (in '~/.cache/nix/fetcher-cache-v4.sqlit
 - 这个差值只作用于**真正调用 nix 的命令**；不跑 nix 的命令不受影响（插件只多几次 `stat`，可忽略）；
 - 缓存目录若在仓库内，需加入 `.gitignore`（本仓库的 `.dsh-plugins/` 已通过 `.git/info/exclude` 忽略）；
 - `nix build`/`nix flake update` 等需要下载或求值更多的命令，冷缓存的劣势通常比上表更明显。
+
+## 模型如何知道它在生效
+
+模型默认看不到「谁改了环境」——它可能把 `IN_NIX_SHELL=impure` 和 /nix/store 的工具链归功于 direnv，或干脆以为还是原生环境。这正是本插件向**运行时上下文**（`ctx.systemPrompt.context`，与 working-directory、sandbox-policy 报告运行事实的是同一个注册表）贡献一句话的原因：
+
+> Bash commands run inside the Nix dev shell of `<flakeDir>` (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, the toolchain comes from /nix/store, NIX_CACHE_HOME is writable, and `nix` works directly.
+
+行为细节：
+
+- **条件式**：只有该会话的 cwd 能找到 flake、且本插件已成功捕获过它的 devShell 时才会出现；捕获失败、目录不在 flake 内、无 agent 的 assembly 一律返回空串（空串会被提示词装配过滤掉，不占 token）。
+- **一步延迟**：捕获发生在第一次 bash 调用里，因此这句话从**下一次**模型请求开始出现；不额外增加提示词装配的延迟（不在 assembly 里跑 nix）。
+- **不改内置 tool 描述**：`bash` 的 schema 由 `dsh-tool-bash` 拥有，外部插件没有稳定的改写缝；`ctx.systemPrompt.context` 才是这类运行时事实的公开扩展点（`dsh-tool-bash` 自己也是用 `systemPrompt.section` 加 `[exit code: N]` 提示的）。
+- 关闭：`promptContext: false`。
 
 ## 安全边界
 

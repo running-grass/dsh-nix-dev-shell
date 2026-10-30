@@ -51,6 +51,8 @@ const DEFAULTS = {
   cacheDir: '',
   /** Point NIX_CACHE_HOME at {@link DEFAULTS.cacheDir} for confined commands in a flake. */
   injectCacheHome: true,
+  /** Tell the model (runtime prompt context) when a captured dev shell is active. */
+  promptContext: true,
   /** nix executable name or absolute path. */
   nixCommand: 'nix',
 }
@@ -120,6 +122,7 @@ function normalizeConfig(config) {
     ttlMs: Math.floor(num('ttlMs', DEFAULTS.ttlMs)),
     cacheDir: str('cacheDir', DEFAULTS.cacheDir),
     injectCacheHome: pick('injectCacheHome') !== false,
+    promptContext: pick('promptContext') !== false,
     nixCommand: str('nixCommand', DEFAULTS.nixCommand),
   }
 }
@@ -214,6 +217,24 @@ function flakeStamp(cfg, flakeDir) {
   } catch {
     return null
   }
+}
+
+/**
+ * Placement among runtime-context entries: right after the sandbox policy
+ * (`CONTEXT_ORDERS.SANDBOX_POLICY` = 110) and before the approval policy
+ * (115), so the environment fact is read together with the sandbox fact.
+ */
+const PROMPT_CONTEXT_ORDER = 112
+
+/**
+ * The single line handed to the model while a dev shell is active. It names the
+ * plugin deliberately: without it models attribute `IN_NIX_SHELL` and the Nix
+ * toolchain to direnv, or silently treat the environment as the native one.
+ * @param flakeDir - the flake root the dev shell was captured from.
+ * @returns one English sentence for the runtime prompt context.
+ */
+function devShellContextLine(flakeDir) {
+  return `Bash commands run inside the Nix dev shell of ${flakeDir} (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, the toolchain comes from /nix/store, NIX_CACHE_HOME is writable, and \`nix\` works directly.`
 }
 
 /** The helper shell program that prints the dev-shell environment as NUL-separated pairs. */
@@ -400,7 +421,22 @@ function createDecorator(ctx, cfg) {
     }
   }
 
-  return install()
+  /**
+   * The runtime prompt-context line for one assembly, or '' when the assembly's
+   * workspace has no captured dev shell (yet).
+   * @param workdir - the assembling agent's session cwd, when it has one.
+   * @returns the line to contribute, possibly empty.
+   */
+  function activeLine(workdir) {
+    if (!cfg.promptContext || typeof workdir !== 'string' || workdir.length === 0) return ''
+    const flakeDir = findFlakeDir(cfg, workdir)
+    if (flakeDir === null) return ''
+    const cached = cache.get(flakeDir)
+    if (cached === undefined || cached.env === null) return ''
+    return devShellContextLine(flakeDir)
+  }
+
+  return { install, activeLine }
 }
 
 /**
@@ -411,5 +447,19 @@ function createDecorator(ctx, cfg) {
  */
 export function apply(ctx, config) {
   const cfg = normalizeConfig(config)
-  ctx.effect(() => createDecorator(ctx, cfg), 'dsh-nix-dev-shell: decorate ctx.shell.execute')
+  const decorator = createDecorator(ctx, cfg)
+  ctx.effect(() => decorator.install(), 'dsh-nix-dev-shell: decorate ctx.shell.execute')
+  // Runtime prompt context (not a tool description): tool schemas are owned by
+  // their tool plugins, while ctx.systemPrompt.context is the registry the
+  // working-directory and sandbox-policy plugins use for the same kind of fact.
+  if (cfg.promptContext && typeof ctx.inject === 'function') {
+    ctx.inject(['systemPrompt'], (scope) => {
+      scope.systemPrompt.context({
+        name: 'nix-dev-shell:active',
+        order: PROMPT_CONTEXT_ORDER,
+        interpolate: false,
+        text: (context) => decorator.activeLine(context?.agent?.session?.header?.cwd),
+      })
+    })
+  }
 }

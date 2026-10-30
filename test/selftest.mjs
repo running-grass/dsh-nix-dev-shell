@@ -53,6 +53,7 @@ function makeShell(state) {
 function makeContext(state) {
   const executor = makeShell(state)
   const disposers = []
+  const contexts = []
   const ctx = {
     logger: { warn() {} },
     effect(callback) {
@@ -60,9 +61,19 @@ function makeContext(state) {
       if (typeof dispose === 'function') disposers.push(dispose)
       return () => {}
     },
+    inject(_names, callback) {
+      callback({
+        systemPrompt: {
+          context(entry) {
+            contexts.push(entry)
+            return () => {}
+          },
+        },
+      })
+    },
   }
   ctx.shell = { execute: executor }
-  return { ctx, executor, disposeAll: () => disposers.forEach((dispose) => dispose()) }
+  return { ctx, executor, contexts, disposeAll: () => disposers.forEach((dispose) => dispose()) }
 }
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-nix-dev-shell-selftest-'))
@@ -300,6 +311,44 @@ await testAsync('relative cacheDir is anchored at the flake root', async () => {
   assert.equal(result.spec.env.NIX_CACHE_HOME, join(flakeDir, '.cache/nix'))
   assert.match(state.captureSpecs[0].command, /NIX_CACHE_HOME=/)
   disposeAll()
+})
+
+// 9d. Runtime prompt context: silent until a dev shell is captured, then one line.
+await testAsync('prompt context stays silent until a dev shell is captured', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false }
+  const { ctx, contexts, disposeAll } = makeContext(state)
+  apply(ctx, {})
+  assert.equal(contexts.length, 1)
+  const entry = contexts[0]
+  assert.equal(entry.name, 'nix-dev-shell:active')
+  assert.equal(entry.interpolate, false)
+  const lineFor = (cwd) => entry.text({ agent: { session: { header: { cwd } } } })
+  assert.equal(lineFor(workdir), '', 'no capture yet: no claim')
+  await ctx.shell.execute(spec())
+  const line = lineFor(workdir)
+  assert.match(line, /dsh-nix-dev-shell plugin, not direnv/)
+  assert.ok(line.includes(flakeDir), 'the line names the flake root')
+  assert.equal(lineFor(plainDir), '', 'a directory outside the flake stays silent')
+  assert.equal(entry.text({}), '', 'agentless assembly stays silent')
+  assert.equal(entry.text({ agent: undefined }), '')
+  disposeAll()
+})
+
+// 9e. A failed capture keeps the prompt context silent.
+await testAsync('prompt context stays silent when capture fails', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: true }
+  const { ctx, contexts } = makeContext(state)
+  apply(ctx, {})
+  await ctx.shell.execute(spec())
+  assert.equal(contexts[0].text({ agent: { session: { header: { cwd: workdir } } } }), '')
+})
+
+// 9f. promptContext: false registers nothing at all.
+await testAsync('promptContext: false registers no prompt context', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false }
+  const { ctx, contexts } = makeContext(state)
+  apply(ctx, { promptContext: false })
+  assert.equal(contexts.length, 0)
 })
 
 // 10. Disposal restores the untouched executor method.
