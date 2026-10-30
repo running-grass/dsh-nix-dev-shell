@@ -234,7 +234,7 @@ const PROMPT_CONTEXT_ORDER = 112
  * @returns one English sentence for the runtime prompt context.
  */
 function devShellContextLine(flakeDir) {
-  return `Bash commands run inside the Nix dev shell of ${flakeDir} (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, the toolchain comes from /nix/store, NIX_CACHE_HOME is writable, and \`nix\` works directly.`
+  return `Bash commands run inside the Nix dev shell of ${flakeDir} (dsh-nix-dev-shell plugin, not direnv): IN_NIX_SHELL=impure, tools come from /nix/store, and \`nix\` works directly.`
 }
 
 /** The helper shell program that prints the dev-shell environment as NUL-separated pairs. */
