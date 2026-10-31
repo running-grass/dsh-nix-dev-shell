@@ -69,7 +69,8 @@ echo $NIX_CACHE_HOME    # 沙箱可写的 nix 缓存目录
 | `cacheDir` | `'.dsh-plugins/.cache/nix'`（随行配置；代码内默认为 `''` = 临时目录） | 沙箱内 nix 的缓存目录（`NIX_CACHE_HOME`，helper 里同时设 `XDG_CACHE_HOME`）；相对路径按 **flake 根目录**解析（不是 Harness 进程的 cwd）。 |
 | `injectCacheHome` | `true` | 在 flake 工作区内、且命令受沙箱约束时，把 `NIX_CACHE_HOME` 注入命令环境，使显式 `nix` 命令开箱可用。 |
 | `nixCommand` | `'nix'` | nix 可执行文件的名称或绝对路径。 |
-| `promptContext` | `true` | 向模型注入一条运行时上下文，说明 devShell 已生效、来源于本插件（而非 direnv）。 |
+| `promptContext` | `true` | 向模型注入一条系统提示词片段，说明 devShell 已生效。 |
+| `prefetch` | `true` | `agent/created` 时预捕获 devShell（最多等 2.5s，仅 flake 工作区），让第一份系统提示词就是最终形态。 |
 
 ### 缓存与失效
 
@@ -128,7 +129,7 @@ error: … unable to open database file (in '~/.cache/nix/fetcher-cache-v4.sqlit
 
 - **条件式**：只有该会话的 cwd 能找到 flake、且本插件已成功捕获过它的 devShell 时才会出现；捕获失败、目录不在 flake 内、无 agent 的 assembly 一律返回空串（空串会被提示词装配过滤掉，不占 token）。
 - **每步重算**：用 section 而不是 runtime context，是因为后者会被物化成持久的 user 角色快照——devShell 失效退回原生 shell 后，旧句子会残留；section 每次装配重新求值，不会说谎。
-- **一步延迟**：捕获发生在第一次 bash 调用里，因此这句话从**下一次**模型请求开始出现；不额外增加提示词装配的延迟（不在 assembly 里跑 nix）。
+- **会话开始即预热**：`agent/created` 时预捕获 devShell（串行事件，最多等 2.5s，仅 flake 工作区），因此第一份系统提示词就是最终形态；稳态下提示词字节级不变，不会每步刷新，也不会每步造成前缀缓存失效。实测 251 步、9.5 小时的会话只产生 2 条 `system/message`。捕获失败时该行不出现、命令退回原生 shell。
 - **不改内置 tool 描述**：`bash` 的 schema 由 `dsh-tool-bash` 拥有，外部插件没有稳定的改写缝；`ctx.systemPrompt.context` 才是这类运行时事实的公开扩展点（`dsh-tool-bash` 自己也是用 `systemPrompt.section` 加 `[exit code: N]` 提示的）。
 - 关闭：`promptContext: false`。
 

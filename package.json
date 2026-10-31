@@ -1,6 +1,6 @@
 {
   "name": "dsh-nix-dev-shell",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "DeepSeek Harness plugin: runs bash commands inside the workspace's Nix dev shell when a flake.nix is present",
   "license": "MIT",
   "keywords": [

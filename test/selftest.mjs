@@ -54,6 +54,7 @@ function makeContext(state) {
   const executor = makeShell(state)
   const disposers = []
   const contexts = []
+  const listeners = []
   const ctx = {
     logger: { warn() {} },
     effect(callback) {
@@ -75,9 +76,18 @@ function makeContext(state) {
         },
       })
     },
+    get(name) {
+      if (name !== 'sandboxPolicy') return undefined
+      if (state.sandboxPolicy === null) return undefined
+      return state.sandboxPolicy ?? { resolve: () => ({ mode: 'workspace-write' }) }
+    },
+    on(event, handler) {
+      listeners.push({ event, handler })
+      return () => {}
+    },
   }
-  ctx.shell = { execute: executor }
-  return { ctx, executor, contexts, disposeAll: () => disposers.forEach((dispose) => dispose()) }
+  ctx.shell = state.sandboxMode === undefined ? { execute: executor } : { execute: executor, sandboxMode: state.sandboxMode }
+  return { ctx, executor, contexts, listeners, disposeAll: () => disposers.forEach((dispose) => dispose()) }
 }
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-nix-dev-shell-selftest-'))
@@ -355,6 +365,57 @@ await testAsync('promptContext: false registers no prompt context', async () => 
   const { ctx, contexts } = makeContext(state)
   apply(ctx, { promptContext: false })
   assert.equal(contexts.length, 0)
+})
+
+// 9g. agent/created prefetch warms the environment before the first command.
+await testAsync('agent/created prefetches the dev shell', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false }
+  const { ctx, contexts, listeners } = makeContext(state)
+  apply(ctx, {})
+  const created = listeners.find((entry) => entry.event === 'agent/created')
+  assert.ok(created !== undefined)
+  await created.handler({ agent: { session: { header: { cwd: workdir } } } })
+  assert.equal(state.captures, 1)
+  assert.equal(state.executed.length, 0, 'no command ran')
+  const line = contexts[0].text({ agent: { session: { header: { cwd: workdir } } } })
+  assert.match(line, /Nix dev shell of/)
+})
+
+// 9h. Prefetch stays out of the way outside flakes.
+await testAsync('prefetch skips non-flake workdirs', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false }
+  const { ctx, listeners } = makeContext(state)
+  apply(ctx, {})
+  await listeners.find((entry) => entry.event === 'agent/created').handler({ agent: { session: { header: { cwd: plainDir } } } })
+  assert.equal(state.captures, 0)
+})
+
+// 9i. A confining executor cannot be warmed without a session policy.
+await testAsync('prefetch skips a confining executor without a session policy', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false, sandboxPolicy: null, sandboxMode: 'workspace-write' }
+  const { ctx, listeners } = makeContext(state)
+  apply(ctx, {})
+  await listeners.find((entry) => entry.event === 'agent/created').handler({ agent: { session: { header: { cwd: workdir } } } })
+  assert.equal(state.captures, 0)
+})
+
+// 9j. The warm-up carries the session's resolved sandbox policy.
+await testAsync('prefetch carries the session sandbox policy', async () => {
+  const policy = { mode: 'workspace-write', workspaceRoot: root }
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false, sandboxPolicy: { resolve: () => policy } }
+  const { ctx, listeners } = makeContext(state)
+  apply(ctx, {})
+  await listeners.find((entry) => entry.event === 'agent/created').handler({ agent: { session: { header: { cwd: workdir } } } })
+  assert.equal(state.captures, 1)
+  assert.deepEqual(state.captureSpecs[0].sandboxPolicy, policy)
+})
+
+// 9k. The toggle really removes the listener.
+await testAsync('prefetch: false registers no agent/created listener', async () => {
+  const state = { captures: 0, captureSpecs: [], executed: [], envDump: dump, failCapture: false }
+  const { ctx, listeners } = makeContext(state)
+  apply(ctx, { prefetch: false })
+  assert.equal(listeners.filter((entry) => entry.event === 'agent/created').length, 0)
 })
 
 // 10. Disposal restores the untouched executor method.

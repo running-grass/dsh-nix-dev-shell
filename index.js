@@ -51,8 +51,10 @@ const DEFAULTS = {
   cacheDir: '',
   /** Point NIX_CACHE_HOME at {@link DEFAULTS.cacheDir} for confined commands in a flake. */
   injectCacheHome: true,
-  /** Tell the model (runtime prompt context) when a captured dev shell is active. */
+  /** Tell the model (system-prompt section) when a captured dev shell is active. */
   promptContext: true,
+  /** Warm the dev shell when an agent starts, so the first assembled prompt already carries the line. */
+  prefetch: true,
   /** nix executable name or absolute path. */
   nixCommand: 'nix',
 }
@@ -123,6 +125,7 @@ function normalizeConfig(config) {
     cacheDir: str('cacheDir', DEFAULTS.cacheDir),
     injectCacheHome: pick('injectCacheHome') !== false,
     promptContext: pick('promptContext') !== false,
+    prefetch: pick('prefetch') !== false,
     nixCommand: str('nixCommand', DEFAULTS.nixCommand),
   }
 }
@@ -229,6 +232,9 @@ function flakeStamp(cfg, flakeDir) {
  */
 const PROMPT_SECTION_ORDER = 1005
 
+/** Upper bound on how long session start waits for the warm-up capture. */
+const PREFETCH_WAIT_MS = 2500
+
 /**
  * The single line handed to the model while a dev shell is active. It states
  * what the environment IS — the flake's `nix develop` shell — because without
@@ -294,6 +300,9 @@ function createDecorator(ctx, cfg) {
   const cache = new Map()
   /** flakeDir -> Promise<overlay | null> (single flight) */
   const inflight = new Map()
+  /** Set by {@link install}: the undecorated entry point and whether it confines. */
+  let runOriginal
+  let executorConfines = false
 
   const warn = (message) => {
     try {
@@ -378,6 +387,42 @@ function createDecorator(ctx, cfg) {
     }
   }
 
+  /** Resolve the calling session's sandbox policy for an out-of-band capture. */
+  function sessionPolicy(session) {
+    try {
+      return ctx.get?.('sandboxPolicy')?.resolve(session === undefined ? {} : { session })
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Warm the dev-shell environment for one agent before its first model step, so
+   * the assembled prompt already carries the final line and the session never
+   * needs a mid-conversation system-prompt change (which would drop the provider
+   * prefix cache from that line onward).
+   * @param session - the starting agent's session, when it has one.
+   * @param waitMs - how long a caller may wait for the capture; 0 is fire-and-forget.
+   */
+  async function prefetch(session, waitMs = 0) {
+    if (!cfg.prefetch || !cfg.enabled) return
+    const cwd = session?.header?.cwd
+    if (typeof cwd !== 'string' || cwd.length === 0) return
+    const flakeDir = findFlakeDir(cfg, cwd)
+    if (flakeDir === null) return
+    const cached = cache.get(flakeDir)
+    if (cached !== undefined && cached.env !== null) return
+    if (inflight.has(flakeDir)) return
+    const run = runOriginal
+    if (run === undefined) return
+    const policy = sessionPolicy(session)
+    // A confining executor refuses specs without a policy; do not record a
+    // failure we could have avoided.
+    if (executorConfines && policy === undefined) return
+    const task = resolveOverlay(run, policy === undefined ? {} : { sandboxPolicy: policy }, flakeDir)
+    if (waitMs > 0) await Promise.race([task, new Promise((resolve) => setTimeout(resolve, waitMs))])
+  }
+
   /** Install the decorator on the live executor instance. */
   function install() {
     const proxyShell = ctx.shell
@@ -390,6 +435,12 @@ function createDecorator(ctx, cfg) {
     // Executors define `execute` on their prototype, but an implementation may
     // own the property; restore exactly what was shadowed either way.
     const ownDescriptor = Object.getOwnPropertyDescriptor(rawShell, 'execute')
+    runOriginal = (spec) => originalExecute.call(rawShell, spec)
+    try {
+      executorConfines = rawShell.sandboxMode !== undefined
+    } catch {
+      executorConfines = false
+    }
 
     /** @this the caller's Cordis shadow, so `this.ctx` keeps its usual semantics. */
     const wrapped = async function wrapped(spec) {
@@ -440,7 +491,7 @@ function createDecorator(ctx, cfg) {
     return devShellContextLine(flakeDir)
   }
 
-  return { install, activeLine }
+  return { install, activeLine, prefetch }
 }
 
 /**
@@ -456,13 +507,25 @@ export function apply(ctx, config) {
   // A system-prompt section, not a tool description: tool schemas are owned by
   // their tool plugins, while ctx.systemPrompt is the public seam for guidance
   // contributions (dsh-tool-bash adds its own section the same way).
+  // `agent/created` is a serial event: returning the promise makes session
+  // start wait for the warm-up (bounded by PREFETCH_WAIT_MS), so the first
+  // assembled prompt already carries the line.
+  if (cfg.prefetch && typeof ctx.on === 'function') {
+    ctx.on('agent/created', ({ agent }) => decorator.prefetch(agent?.session, PREFETCH_WAIT_MS))
+  }
   if (cfg.promptContext && typeof ctx.inject === 'function') {
     ctx.inject(['systemPrompt'], (scope) => {
       scope.systemPrompt.section({
         name: 'nix-dev-shell:active',
         order: PROMPT_SECTION_ORDER,
         interpolate: false,
-        text: (context) => decorator.activeLine(context?.agent?.session?.header?.cwd),
+        text: (context) => {
+          const line = decorator.activeLine(context?.agent?.session?.header?.cwd)
+          // Warm on assembly too: resumed sessions do not always pass through
+          // `agent/created` after a plugin reload.
+          if (line.length === 0) decorator.prefetch(context?.agent?.session).catch(() => {})
+          return line
+        },
       })
     })
   }

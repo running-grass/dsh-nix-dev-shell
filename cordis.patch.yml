@@ -24,4 +24,7 @@
         # 给模型一条运行时上下文（systemPrompt.context），说明 bash 运行在 flake
         # 的 devShell 里、来自本插件而非 direnv；首次捕获成功后生效。
         promptContext: true
+        # 会话创建时预捕获（最多等 2.5s），使第一份系统提示词就是最终形态，
+        # 避免会话中途改 system prompt 造成 provider 前缀缓存失效。
+        prefetch: true
         nixCommand: nix
