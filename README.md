@@ -120,13 +120,14 @@ error: … unable to open database file (in '~/.cache/nix/fetcher-cache-v4.sqlit
 
 ## 模型如何知道它在生效
 
-模型默认看不到「谁改了环境」——它可能把 `IN_NIX_SHELL=impure` 和 /nix/store 的工具链归功于别的工具，或干脆以为还是原生环境。这正是本插件向**运行时上下文**（`ctx.systemPrompt.context`，与 working-directory、sandbox-policy 报告运行事实的是同一个注册表）贡献一句**正面陈述**的原因：
+模型默认看不到「谁改了环境」——它可能把 `IN_NIX_SHELL=impure` 和 /nix/store 的工具链归功于别的工具，或干脆以为还是原生环境。这正是本插件向**系统提示词**（`ctx.systemPrompt.section`，与 `dsh-tool-bash` 加 `[exit code: N]` 提示用的是同一个注册表，order 紧跟 bash 工具说明）贡献一句**正面陈述**的原因：
 
 > Bash commands run inside the Nix dev shell of `<flakeDir>` (the `nix develop` environment): IN_NIX_SHELL=impure, tools come from /nix/store, and `nix` works directly.
 
 行为细节：
 
 - **条件式**：只有该会话的 cwd 能找到 flake、且本插件已成功捕获过它的 devShell 时才会出现；捕获失败、目录不在 flake 内、无 agent 的 assembly 一律返回空串（空串会被提示词装配过滤掉，不占 token）。
+- **每步重算**：用 section 而不是 runtime context，是因为后者会被物化成持久的 user 角色快照——devShell 失效退回原生 shell 后，旧句子会残留；section 每次装配重新求值，不会说谎。
 - **一步延迟**：捕获发生在第一次 bash 调用里，因此这句话从**下一次**模型请求开始出现；不额外增加提示词装配的延迟（不在 assembly 里跑 nix）。
 - **不改内置 tool 描述**：`bash` 的 schema 由 `dsh-tool-bash` 拥有，外部插件没有稳定的改写缝；`ctx.systemPrompt.context` 才是这类运行时事实的公开扩展点（`dsh-tool-bash` 自己也是用 `systemPrompt.section` 加 `[exit code: N]` 提示的）。
 - 关闭：`promptContext: false`。

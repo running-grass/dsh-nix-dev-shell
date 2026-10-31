@@ -68,6 +68,10 @@ function makeContext(state) {
             contexts.push(entry)
             return () => {}
           },
+          section(entry) {
+            contexts.push(entry)
+            return () => {}
+          },
         },
       })
     },

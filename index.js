@@ -220,11 +220,14 @@ function flakeStamp(cfg, flakeDir) {
 }
 
 /**
- * Placement among runtime-context entries: right after the sandbox policy
- * (`CONTEXT_ORDERS.SANDBOX_POLICY` = 110) and before the approval policy
- * (115), so the environment fact is read together with the sandbox fact.
+ * Placement in the system prompt: right after the bash tool guidance
+ * (`SECTION_ORDERS.TOOL_BASH` = 1000) and before pwsh (1010). A *section*
+ * rather than a runtime context on purpose — contexts are materialized as
+ * durable user-role snapshots, so a line accepted while the dev shell worked
+ * would linger after a fallback; section providers are re-resolved on every
+ * assembly and empty text is dropped.
  */
-const PROMPT_CONTEXT_ORDER = 112
+const PROMPT_SECTION_ORDER = 1005
 
 /**
  * The single line handed to the model while a dev shell is active. It states
@@ -450,14 +453,14 @@ export function apply(ctx, config) {
   const cfg = normalizeConfig(config)
   const decorator = createDecorator(ctx, cfg)
   ctx.effect(() => decorator.install(), 'dsh-nix-dev-shell: decorate ctx.shell.execute')
-  // Runtime prompt context (not a tool description): tool schemas are owned by
-  // their tool plugins, while ctx.systemPrompt.context is the registry the
-  // working-directory and sandbox-policy plugins use for the same kind of fact.
+  // A system-prompt section, not a tool description: tool schemas are owned by
+  // their tool plugins, while ctx.systemPrompt is the public seam for guidance
+  // contributions (dsh-tool-bash adds its own section the same way).
   if (cfg.promptContext && typeof ctx.inject === 'function') {
     ctx.inject(['systemPrompt'], (scope) => {
-      scope.systemPrompt.context({
+      scope.systemPrompt.section({
         name: 'nix-dev-shell:active',
-        order: PROMPT_CONTEXT_ORDER,
+        order: PROMPT_SECTION_ORDER,
         interpolate: false,
         text: (context) => decorator.activeLine(context?.agent?.session?.header?.cwd),
       })
